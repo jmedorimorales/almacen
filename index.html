@@ -1,0 +1,196 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Almacén Medori</title>
+<meta name="theme-color" content="#1f6f6b">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-title" content="Almacén">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="icon" href="icon-192.png">
+<link rel="apple-touch-icon" href="apple-touch-icon.png">
+<style>
+  :root{--accent:#1f6f6b;--ink:#1b2430}
+  *{box-sizing:border-box;margin:0}
+  html,body{height:100%;background:#f3f4f6;font-family:-apple-system,"Segoe UI",Roboto,Arial,sans-serif;overflow:hidden}
+  #safe{height:env(safe-area-inset-top);background:var(--accent)}
+  #app{position:absolute;left:0;right:0;bottom:0;top:env(safe-area-inset-top);width:100%;height:calc(100% - env(safe-area-inset-top));border:0;background:#f3f4f6}
+  #splash{position:fixed;inset:0;background:var(--accent);color:#fff;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:14px;z-index:50;transition:opacity .4s}
+  #splash img{width:110px;height:110px;border-radius:26px;box-shadow:0 8px 24px rgba(0,0,0,.25)}
+  #splash b{font-size:24px}
+  #splash small{opacity:.8}
+  .spin{width:28px;height:28px;border:3px solid rgba(255,255,255,.35);border-top-color:#fff;border-radius:50%;animation:sp 1s linear infinite;margin-top:10px}
+  @keyframes sp{to{transform:rotate(360deg)}}
+  #bar{position:fixed;left:0;right:0;top:env(safe-area-inset-top);z-index:40;color:#fff;font-weight:700;font-size:14px;text-align:center;padding:8px 10px;display:none}
+  #bar.off{display:block;background:#5f6368}
+  #bar.ok{display:block;background:#1e7e34}
+  #offline{position:fixed;inset:0;background:#f3f4f6;display:none;flex-direction:column;align-items:center;justify-content:center;text-align:center;padding:30px;gap:12px;z-index:30;color:var(--ink)}
+  #offline .e{font-size:56px}
+  #offline button,#scan button{font:inherit;font-weight:800;border:0;border-radius:12px;padding:14px 20px;background:var(--accent);color:#fff;font-size:16px}
+  #scan{position:fixed;inset:0;background:#000;z-index:60;display:none}
+  #scan video{position:absolute;inset:0;width:100%;height:100%;object-fit:cover}
+  #scan .frame{position:absolute;left:50%;top:45%;width:68vw;max-width:300px;aspect-ratio:1;transform:translate(-50%,-50%);border:4px solid #3ddc97;border-radius:20px;box-shadow:0 0 0 2000px rgba(0,0,0,.45)}
+  #scan .line{position:absolute;left:6%;right:6%;height:3px;background:#3ddc97;box-shadow:0 0 12px #3ddc97;animation:ln 1.5s ease-in-out infinite alternate}
+  @keyframes ln{from{top:8%}to{top:90%}}
+  #scan .txt{position:absolute;left:0;right:0;top:calc(45% + 42vw);text-align:center;color:#fff;font-weight:700;font-size:17px;padding:0 20px}
+  #scan .close{position:absolute;right:16px;top:calc(env(safe-area-inset-top) + 14px);width:48px;height:48px;border-radius:50%;background:rgba(255,255,255,.2);color:#fff;font-size:24px;padding:0}
+  #scan .manual{position:absolute;left:50%;bottom:calc(env(safe-area-inset-bottom) + 30px);transform:translateX(-50%);background:#fff;color:var(--ink)}
+</style>
+</head>
+<body>
+<div id="safe"></div>
+<iframe id="app" title="Almacén Medori" allow="camera; clipboard-write"></iframe>
+<div id="bar"></div>
+
+<div id="splash"><img src="icon-512.png" alt=""><b>Almacén Medori</b><small>Medori Electricidad</small><div class="spin"></div></div>
+
+<div id="offline"><div class="e">📴</div><h2>Sin cobertura</h2>
+  <p>La app necesita señal para abrir el almacén.<br>Lo que hayas guardado sin cobertura se enviará solo en cuanto vuelva.</p>
+  <p id="offPend"></p>
+  <button id="retry">Reintentar</button></div>
+
+<div id="scan"><video id="vid" playsinline muted></video>
+  <div class="frame"><div class="line"></div></div>
+  <div class="txt" id="scanTxt">Apunta a la etiqueta QR de la gaveta/estantería</div>
+  <button class="close" id="scanClose" aria-label="Cerrar">✕</button>
+  <button class="manual" id="scanManual">⌨️ Escribir la gaveta</button>
+</div>
+<canvas id="cv" hidden></canvas>
+
+<script src="https://cdn.jsdelivr.net/npm/jsqr@1.4.0/dist/jsQR.js" defer></script>
+<script>
+// URL de la app del almacén (Google Apps Script). Si se crea una implementación nueva, cambia solo esta línea.
+const EXEC = 'https://script.google.com/macros/s/AKfycbz-ae5mQK2lQCmEW41oq9gcaED6EW7MlXsuLewHC1qlzYuIr8gGMFssCABY7qWAPOMeWw/exec';
+const COLA = 'medori_cola';
+const $ = id => document.getElementById(id);
+const frame = $('app');
+
+function conPwa(url){
+  try { const u = new URL(url, EXEC); u.searchParams.set('pwa', '1'); return u.toString(); } catch(e){ return EXEC + '?pwa=1'; }
+}
+function cola(){ try { return JSON.parse(localStorage.getItem(COLA) || '[]'); } catch(e){ return []; } }
+function guardarCola(c){ try { localStorage.setItem(COLA, JSON.stringify(c)); } catch(e){} }
+
+let ocultarBarra = null;
+function barra(txt, tipo, ms){
+  const b = $('bar'); b.textContent = txt; b.className = tipo;
+  clearTimeout(ocultarBarra);
+  if (ms) ocultarBarra = setTimeout(() => { b.className = ''; }, ms);
+}
+function estadoRed(){
+  const n = cola().length;
+  if (!navigator.onLine) barra('📴 Sin cobertura' + (n ? ' · ' + n + ' pendiente' + (n > 1 ? 's' : '') + ' de enviar' : ''), 'off');
+  else if (!n) { if ($('bar').className === 'off') barra('✅ Conectado', 'ok', 1800); }
+  $('offPend').textContent = n ? n + ' movimiento' + (n > 1 ? 's' : '') + ' pendiente' + (n > 1 ? 's' : '') + ' de enviar.' : '';
+}
+
+function cargar(url){
+  if (!navigator.onLine){ $('offline').style.display = 'flex'; $('splash').style.opacity = 0; setTimeout(() => $('splash').style.display = 'none', 400); estadoRed(); return; }
+  $('offline').style.display = 'none';
+  frame.src = conPwa(url || EXEC);
+}
+frame.addEventListener('load', () => {
+  if (!frame.src) return;
+  $('splash').style.opacity = 0; setTimeout(() => $('splash').style.display = 'none', 400);
+});
+
+// Mensajes desde la app del almacén (dentro del iframe)
+window.addEventListener('message', ev => {
+  if (!/(\.googleusercontent\.com|\/\/script\.google\.com)$/.test(ev.origin)) return;
+  const d = ev.data || {};
+  if (d.medori === 'nav' && d.url) cargar(d.url);
+  else if (d.medori === 'scan') abrirEscaner();
+  else if (d.medori === 'cola' && d.url){
+    const c = cola(); c.push({ url: d.url, t: Date.now() }); guardarCola(c); estadoRed();
+  }
+});
+
+// Enviar lo pendiente cuando vuelve la cobertura
+let enviando = false;
+async function enviarCola(){
+  if (enviando || !navigator.onLine) return;
+  let c = cola(); if (!c.length) return;
+  enviando = true; barra('⏳ Enviando ' + c.length + ' pendiente' + (c.length > 1 ? 's' : '') + '…', 'ok');
+  let enviados = 0;
+  while (c.length && navigator.onLine){
+    const it = c[0];
+    try {
+      await fetch(it.url, { mode: 'no-cors', cache: 'no-store', credentials: 'include' });
+      c.shift(); guardarCola(c); enviados++;
+    } catch(e){ break; }
+  }
+  enviando = false;
+  if (enviados){ barra('✅ ' + enviados + ' movimiento' + (enviados > 1 ? 's' : '') + ' enviado' + (enviados > 1 ? 's' : ''), 'ok', 3500); cargar(EXEC + '?t=' + Date.now()); }
+  estadoRed();
+}
+window.addEventListener('online', () => { estadoRed(); enviarCola(); if ($('offline').style.display === 'flex') cargar(); });
+window.addEventListener('offline', estadoRed);
+$('retry').onclick = () => { if (navigator.onLine){ cargar(); enviarCola(); } else estadoRed(); };
+
+// ---------- Escáner QR ----------
+let stream = null, buscando = false, detectando = false;
+let detector = ('BarcodeDetector' in window) ? new BarcodeDetector({ formats: ['qr_code'] }) : null;
+function gavetaDe(txt){
+  txt = String(txt || '').trim();
+  try { const u = new URL(txt); const g = u.searchParams.get('g'); if (g) return g; } catch(e){}
+  if (/^[A-Za-z]{0,3}\d{1,3}(-[A-Za-z0-9]{1,4})?$/.test(txt)) return txt.toUpperCase();
+  return '';
+}
+function irAGaveta(g){ cerrarEscaner(); cargar(EXEC + '?g=' + encodeURIComponent(g) + '&t=' + Date.now()); }
+async function abrirEscaner(){
+  $('scan').style.display = 'block'; $('scanTxt').textContent = 'Apunta a la etiqueta QR de la gaveta/estantería';
+  try {
+    stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: 'environment' }, audio: false });
+    const v = $('vid'); v.srcObject = stream; await v.play();
+    buscando = true; leer();
+  } catch(e){
+    $('scanTxt').textContent = 'No se puede usar la cámara. Permite el acceso a la cámara o escribe la gaveta.';
+  }
+}
+function cerrarEscaner(){
+  buscando = false; $('scan').style.display = 'none';
+  if (stream){ stream.getTracks().forEach(t => t.stop()); stream = null; }
+}
+function leer(){
+  if (!buscando) return;
+  const v = $('vid'), cv = $('cv');
+  if (v.readyState >= 2 && detector && !detectando){
+    detectando = true;
+    detector.detect(v).then(cs => {
+      detectando = false;
+      const g = cs.length ? gavetaDe(cs[0].rawValue) : '';
+      if (g){ if (navigator.vibrate) navigator.vibrate(80); irAGaveta(g); }
+      else if (cs.length) $('scanTxt').textContent = 'Ese QR no es de una gaveta del almacén.';
+    }).catch(() => { detectando = false; detector = null; });
+  } else if (v.readyState >= 2 && !detector && window.jsQR){
+    const w = 480, h = Math.round(480 * v.videoHeight / v.videoWidth) || 480;
+    cv.width = w; cv.height = h;
+    const cx = cv.getContext('2d', { willReadFrequently: true });
+    cx.drawImage(v, 0, 0, w, h);
+    const r = jsQR(cx.getImageData(0, 0, w, h).data, w, h, { inversionAttempts: 'dontInvert' });
+    if (r && r.data){
+      const g = gavetaDe(r.data);
+      if (g){ if (navigator.vibrate) navigator.vibrate(80); irAGaveta(g); return; }
+      $('scanTxt').textContent = 'Ese QR no es de una gaveta del almacén.';
+    }
+  }
+  requestAnimationFrame(leer);
+}
+$('scanClose').onclick = cerrarEscaner;
+$('scanManual').onclick = () => { const g = prompt('Gaveta / estantería (ej: E01-B)'); if (g && g.trim()) irAGaveta(g.trim().toUpperCase()); };
+
+// ---------- Arranque ----------
+if ('serviceWorker' in navigator) navigator.serviceWorker.register('sw.js').catch(() => {});
+(function(){
+  const p = new URLSearchParams(location.search);
+  const g = p.get('g');
+  cargar(g ? EXEC + '?g=' + encodeURIComponent(g) : EXEC);
+  estadoRed(); enviarCola();
+  setInterval(enviarCola, 30000);
+})();
+</script>
+</body>
+</html>
