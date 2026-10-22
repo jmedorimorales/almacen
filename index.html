@@ -38,11 +38,17 @@
   #scan .txt{position:absolute;left:0;right:0;top:calc(45% + 42vw);text-align:center;color:#fff;font-weight:700;font-size:17px;padding:0 20px}
   #scan .close{position:absolute;right:16px;top:calc(env(safe-area-inset-top) + 14px);width:48px;height:48px;border-radius:50%;background:rgba(255,255,255,.2);color:#fff;font-size:24px;padding:0}
   #scan .manual{position:absolute;left:50%;bottom:calc(env(safe-area-inset-bottom) + 30px);transform:translateX(-50%);background:#fff;color:var(--ink)}
+  #mic{position:fixed;inset:0;background:rgba(15,40,38,.92);z-index:70;display:none;flex-direction:column;align-items:center;justify-content:center;gap:18px;padding:30px;text-align:center;color:#fff}
+  #mic .bola{width:120px;height:120px;border-radius:50%;background:#c62828;display:flex;align-items:center;justify-content:center;font-size:54px;animation:pul 1s ease-in-out infinite alternate}
+  @keyframes pul{from{box-shadow:0 0 0 0 rgba(198,40,40,.6)}to{box-shadow:0 0 0 28px rgba(198,40,40,0)}}
+  #mic p{font-size:19px;line-height:1.4;min-height:54px;max-width:520px}
+  #mic small{opacity:.8;font-size:15px}
+  #mic button{font:inherit;font-weight:800;border:0;border-radius:14px;padding:16px 28px;background:#fff;color:var(--ink);font-size:18px}
 </style>
 </head>
 <body>
 <div id="safe"></div>
-<iframe id="app" title="Almacén Medori" allow="camera; clipboard-write"></iframe>
+<iframe id="app" title="Almacén Medori" allow="camera; microphone; clipboard-write"></iframe>
 <div id="bar"></div>
 
 <div id="splash"><img src="icon-512.png" alt=""><b>Almacén Medori</b><small>Medori Electricidad</small><div class="spin"></div></div>
@@ -59,6 +65,11 @@
   <button class="manual" id="scanManual">⌨️ Escribir la gaveta</button>
 </div>
 <canvas id="cv" hidden></canvas>
+
+<div id="mic"><div class="bola">🎙️</div>
+  <small>Te escucho… di el material, la cantidad y la OT o la furgoneta</small>
+  <p id="micTxt"></p>
+  <button id="micOk">✅ Listo</button></div>
 
 <script src="https://cdn.jsdelivr.net/npm/jsqr@1.4.0/dist/jsQR.js" defer></script>
 <script>
@@ -103,6 +114,8 @@ window.addEventListener('message', ev => {
   const d = ev.data || {};
   if (d.medori === 'nav' && d.url) cargar(d.url);
   else if (d.medori === 'scan') abrirEscaner();
+  else if (d.medori === 'mic') abrirMic(ev.source);
+  else if (d.medori === 'micStop') pararMic();
   else if (d.medori === 'cola' && d.url){
     const c = cola(); c.push({ url: d.url, t: Date.now() }); guardarCola(c); estadoRed();
   }
@@ -181,6 +194,33 @@ function leer(){
 }
 $('scanClose').onclick = cerrarEscaner;
 $('scanManual').onclick = () => { const g = prompt('Gaveta / estantería (ej: E01-B)'); if (g && g.trim()) irAGaveta(g.trim().toUpperCase()); };
+
+// ---------- Micrófono para «Dictar» (la app no puede usarlo dentro de Google, lo hace la carcasa) ----------
+let rec = null, micDestino = null, micTexto = '';
+function micEnviar(msg){ try { if (micDestino) micDestino.postMessage(Object.assign({ medori: '' }, msg), '*'); } catch(e){} }
+function abrirMic(destino){
+  micDestino = destino; micTexto = '';
+  const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
+  if (!SR){ micEnviar({ medori: 'micErr', msg: 'Este móvil no deja dictar aquí: pulsa en el cuadro y usa el micrófono 🎤 del teclado.' }); return; }
+  $('micTxt').textContent = ''; $('mic').style.display = 'flex';
+  try {
+    rec = new SR(); rec.lang = 'es-ES'; rec.interimResults = true; rec.continuous = true;
+    rec.onresult = e => {
+      let s = ''; for (let i = 0; i < e.results.length; i++) s += e.results[i][0].transcript;
+      micTexto = s.trim(); $('micTxt').textContent = micTexto; micEnviar({ medori: 'micText', text: micTexto, final: false });
+    };
+    rec.onerror = e => {
+      const permiso = e.error === 'not-allowed' || e.error === 'service-not-allowed';
+      cerrarMic();
+      micEnviar({ medori: 'micErr', msg: permiso ? 'Permite el micrófono a la app, o usa el micrófono 🎤 del teclado.' : (e.error === 'no-speech' ? 'No te he oído. Pulsa otra vez y habla.' : 'No se ha podido escuchar. Usa el micrófono 🎤 del teclado.') });
+    };
+    rec.onend = () => { cerrarMic(); micEnviar({ medori: 'micText', text: micTexto, final: true }); };
+    rec.start();
+  } catch(e){ cerrarMic(); micEnviar({ medori: 'micErr', msg: 'Usa el micrófono 🎤 del teclado.' }); }
+}
+function cerrarMic(){ $('mic').style.display = 'none'; }
+function pararMic(){ if (rec){ try { rec.stop(); } catch(e){} } else cerrarMic(); }
+$('micOk').onclick = pararMic;
 
 // ---------- Arranque ----------
 if ('serviceWorker' in navigator) navigator.serviceWorker.register('sw.js').catch(() => {});

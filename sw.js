@@ -1,6 +1,6 @@
 // App instalable Almacén Medori: guarda la "carcasa" para que abra al instante.
 // Los datos del almacén siempre vienen de Google (no se guardan aquí).
-const CACHE = 'medori-almacen-v1';
+const CACHE = 'medori-almacen-v2';
 const FILES = ['./', 'index.html', 'manifest.webmanifest', 'icon-192.png', 'icon-512.png', 'apple-touch-icon.png'];
 self.addEventListener('install', e => { e.waitUntil(caches.open(CACHE).then(c => c.addAll(FILES)).then(() => self.skipWaiting())); });
 self.addEventListener('activate', e => {
