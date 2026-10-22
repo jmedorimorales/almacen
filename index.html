@@ -215,6 +215,7 @@ function abrirMic(destino){
       micEnviar({ medori: 'micErr', msg: permiso ? 'Permite el micrófono a la app, o usa el micrófono 🎤 del teclado.' : (e.error === 'no-speech' ? 'No te he oído. Pulsa otra vez y habla.' : 'No se ha podido escuchar. Usa el micrófono 🎤 del teclado.') });
     };
     rec.onend = () => { cerrarMic(); micEnviar({ medori: 'micText', text: micTexto, final: true }); };
+    rec.onstart = () => micEnviar({ medori: 'micStart' });
     rec.start();
   } catch(e){ cerrarMic(); micEnviar({ medori: 'micErr', msg: 'Usa el micrófono 🎤 del teclado.' }); }
 }
